@@ -22,7 +22,8 @@ type Direction
 
 
 type alias Model =
-    { position : Position
+    { head : Position
+    , tail : List Position
     , direction : Direction
     , time : Time
     , lastMove : Time
@@ -32,7 +33,11 @@ type alias Model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( Model ( 0, 0 ) Right 0 0 Right, Cmd.none )
+    ( initialModel, Cmd.none )
+
+
+initialModel =
+    Model ( 4, 4 ) [ ( 3, 4 ), ( 2, 4 ), ( 1, 4 ), ( 0, 4 ) ] Right 0 0 Right
 
 
 type Msg
@@ -55,37 +60,60 @@ update msg model =
     case msg of
         Tick timediff ->
             let
-                newTime =
+                time =
                     (timediff / 1000) + model.time
 
-                ( position, newLast, lastMoveDirection ) =
-                    if newTime - model.lastMove >= 1 then
+                ( head, tail, lastMove, lastMoveDirection ) =
+                    if time - model.lastMove >= 1 then
                         let
+                            tail : List Position
+                            tail =
+                                (model.head :: model.tail)
+                                    |> List.reverse
+                                    |> List.tail
+                                    |> Maybe.withDefault []
+                                    |> List.reverse
+
                             ( x, y ) =
-                                model.position
+                                model.head
                         in
                         case model.direction of
                             Up ->
-                                ( ( x, y + 1 ), newTime, Up )
+                                ( ( x, y + 1 ), tail, time, Up )
 
                             Down ->
-                                ( ( x, y - 1 ), newTime, Down )
+                                ( ( x, y - 1 ), tail, time, Down )
 
                             Left ->
-                                ( ( x - 1, y ), newTime, Left )
+                                ( ( x - 1, y ), tail, time, Left )
 
                             Right ->
-                                ( ( x + 1, y ), newTime, Right )
+                                ( ( x + 1, y ), tail, time, Right )
                     else
-                        ( model.position, model.lastMove, model.lastMoveDirection )
+                        ( model.head, model.tail, model.lastMove, model.lastMoveDirection )
+
+                ( x, y ) =
+                    head
+
+                hitBorder =
+                    x < 0 || x > 9 || y < 0 || y > 9
+
+                hitTail =
+                    (List.filter (\( tx, ty ) -> tx == x && ty == y) tail |> List.length) > 0
+
+                newModel =
+                    if hitBorder || hitTail then
+                        initialModel
+                    else
+                        { model
+                            | time = time
+                            , head = head
+                            , tail = tail
+                            , lastMove = lastMove
+                            , lastMoveDirection = lastMoveDirection
+                        }
             in
-            { model
-                | time = newTime
-                , position = position
-                , lastMove = newLast
-                , lastMoveDirection = lastMoveDirection
-            }
-                ! [ Cmd.none ]
+            newModel ! [ Cmd.none ]
 
         KeyDown key ->
             { model | direction = dirForKey key model.direction model.lastMoveDirection } ! []
@@ -134,11 +162,15 @@ view model =
         , height 400
         , style [ ( "display", "block" ) ]
         ]
-        [ snake model.position
+        (List.map
+            (\c -> snake c)
+            (model.head :: model.tail)
+        )
 
-        -- [ triangle ( -0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) model.time
-        -- , square ( 0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) (model.time / 2)
-        ]
+
+
+-- [ triangle ( -0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) model.time
+-- , square ( 0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) (model.time / 2)
 
 
 snake : Position -> WebGL.Entity
