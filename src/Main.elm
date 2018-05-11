@@ -24,6 +24,7 @@ type Direction
 type alias Model =
     { head : Position
     , tail : List Position
+    , food : Position
     , direction : Direction
     , time : Time
     , lastMove : Time
@@ -36,8 +37,9 @@ init =
     ( initialModel, Cmd.none )
 
 
+initialModel : Model
 initialModel =
-    Model ( 4, 4 ) [ ( 3, 4 ), ( 2, 4 ), ( 1, 4 ), ( 0, 4 ) ] Right 0 0 Right
+    Model ( 4, 4 ) [ ( 3, 4 ), ( 2, 4 ), ( 1, 4 ), ( 0, 4 ) ] ( 7, 8 ) Right 0 0 Right
 
 
 type Msg
@@ -66,16 +68,28 @@ update msg model =
                 ( head, tail, lastMove, lastMoveDirection ) =
                     if time - model.lastMove >= 1 then
                         let
-                            tail : List Position
-                            tail =
-                                (model.head :: model.tail)
-                                    |> List.reverse
-                                    |> List.tail
-                                    |> Maybe.withDefault []
-                                    |> List.reverse
-
                             ( x, y ) =
                                 model.head
+
+                            ( fx, fy ) =
+                                model.food
+
+                            gotFood =
+                                x == fx && y == fy
+
+                            newTail : List Position
+                            newTail =
+                                model.head :: model.tail
+
+                            tail =
+                                if gotFood then
+                                    newTail
+                                else
+                                    newTail
+                                        |> List.reverse
+                                        |> List.tail
+                                        |> Maybe.withDefault []
+                                        |> List.reverse
                         in
                         case model.direction of
                             Up ->
@@ -162,15 +176,23 @@ view model =
         , height 400
         , style [ ( "display", "block" ) ]
         ]
-        (List.map
-            (\c -> snake c)
-            (model.head :: model.tail)
+        (food model.food
+            :: List.map
+                (\c -> snake c)
+                (model.head :: model.tail)
         )
 
 
+food : Position -> WebGL.Entity
+food ( x, y ) =
+    let
+        xpos =
+            toFloat x * 0.2 - 1 + 0.1
 
--- [ triangle ( -0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) model.time
--- , square ( 0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) (model.time / 2)
+        ypos =
+            toFloat y * 0.2 - 1 + 0.1
+    in
+    square ( xpos, ypos, 0 ) ( 0.1, 0.1, 0.1 ) 0
 
 
 snake : Position -> WebGL.Entity
@@ -200,11 +222,6 @@ type alias Rotation =
 square : Translation -> Scale -> Rotation -> WebGL.Entity
 square =
     element squareMesh
-
-
-triangle : Translation -> Scale -> Rotation -> WebGL.Entity
-triangle =
-    element triangleMesh
 
 
 element : Mesh Vertex -> Translation -> Scale -> Rotation -> WebGL.Entity
