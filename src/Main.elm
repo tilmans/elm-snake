@@ -26,7 +26,13 @@ type alias Model =
     , direction : Direction
     , time : Time
     , lastMove : Time
+    , lastMoveDirection : Direction
     }
+
+
+init : ( Model, Cmd Msg )
+init =
+    ( Model ( 0, 0 ) Right 0 0 Right, Cmd.none )
 
 
 type Msg
@@ -48,34 +54,72 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Tick timediff ->
-            { model | time = (timediff / 1000) + model.time } ! [ Cmd.none ]
+            let
+                newTime =
+                    (timediff / 1000) + model.time
+
+                ( position, newLast, lastMoveDirection ) =
+                    if newTime - model.lastMove >= 1 then
+                        let
+                            ( x, y ) =
+                                model.position
+                        in
+                        case model.direction of
+                            Up ->
+                                ( ( x, y + 1 ), newTime, Up )
+
+                            Down ->
+                                ( ( x, y - 1 ), newTime, Down )
+
+                            Left ->
+                                ( ( x - 1, y ), newTime, Left )
+
+                            Right ->
+                                ( ( x + 1, y ), newTime, Right )
+                    else
+                        ( model.position, model.lastMove, model.lastMoveDirection )
+            in
+            { model
+                | time = newTime
+                , position = position
+                , lastMove = newLast
+                , lastMoveDirection = lastMoveDirection
+            }
+                ! [ Cmd.none ]
 
         KeyDown key ->
-            { model | direction = dirForKey key model.direction } ! []
+            { model | direction = dirForKey key model.direction model.lastMoveDirection } ! []
 
 
-dirForKey : KeyCode -> Direction -> Direction
-dirForKey key previous =
+dirForKey : KeyCode -> Direction -> Direction -> Direction
+dirForKey key previous lastMove =
     case key of
         38 ->
-            Up
+            if lastMove == Down then
+                Down
+            else
+                Up
 
         40 ->
-            Down
+            if lastMove == Up then
+                Up
+            else
+                Down
 
         37 ->
-            Left
+            if lastMove == Right then
+                Right
+            else
+                Left
 
         39 ->
-            Right
+            if lastMove == Left then
+                Left
+            else
+                Right
 
         _ ->
             previous
-
-
-init : ( Model, Cmd Msg )
-init =
-    ( Model ( 4, 4 ) Right 0 0, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -90,9 +134,23 @@ view model =
         , height 400
         , style [ ( "display", "block" ) ]
         ]
-        [ triangle ( -0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) model.time
-        , square ( 0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) (model.time / 2)
+        [ snake model.position
+
+        -- [ triangle ( -0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) model.time
+        -- , square ( 0.5, 0, 0 ) ( 0.25, 0.25, 0.25 ) (model.time / 2)
         ]
+
+
+snake : Position -> WebGL.Entity
+snake ( x, y ) =
+    let
+        xpos =
+            toFloat x * 0.2 - 1 + 0.1
+
+        ypos =
+            toFloat y * 0.2 - 1 + 0.1
+    in
+    square ( xpos, ypos, 0 ) ( 0.1, 0.1, 0.1 ) 0
 
 
 type alias Translation =
