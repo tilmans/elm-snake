@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "elm-live src/Main.elm --debug"
+    "start": "elm-live src/Main.elm"
   },
   "dependencies": {},
   "devDependencies": {

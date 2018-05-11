@@ -6,8 +6,15 @@ import Html.Attributes exposing (height, style, width)
 import Keyboard exposing (KeyCode, downs)
 import Math.Matrix4 as Mat4 exposing (..)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
+import Random exposing (..)
 import Time exposing (Time)
 import WebGL exposing (Mesh, Shader)
+
+
+type Msg
+    = Tick Time
+    | KeyDown KeyCode
+    | NewFood (List Position) Int
 
 
 type alias Position =
@@ -24,7 +31,7 @@ type Direction
 type alias Model =
     { head : Position
     , tail : List Position
-    , food : Position
+    , food : Maybe Position
     , direction : Direction
     , time : Time
     , lastMove : Time
@@ -34,27 +41,33 @@ type alias Model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( initialModel, Cmd.none )
+    ( initialModel, getNextPosition initialModel.head initialModel.tail )
 
 
 initialModel : Model
 initialModel =
-    Model ( 4, 4 ) [ ( 3, 4 ), ( 2, 4 ), ( 1, 4 ), ( 0, 4 ) ] ( 7, 8 ) Right 0 0 Right
+    Model ( 4, 4 ) [] Nothing Right 0 0 Right
 
 
-type Msg
-    = Tick Time
-    | KeyDown KeyCode
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.batch [ AnimationFrame.diffs Tick, Keyboard.downs KeyDown ]
 
 
-main : Program Never Model Msg
-main =
-    Html.program
-        { init = init
-        , view = view
-        , subscriptions = subscriptions
-        , update = update
-        }
+view : Model -> Html msg
+view model =
+    WebGL.toHtml
+        [ width 400
+        , height 400
+        , style [ ( "display", "block" ) ]
+        ]
+        ((head model.head
+            :: List.map
+                (\c -> tail c)
+                model.tail
+         )
+            ++ [ food model.food ]
+        )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -65,46 +78,18 @@ update msg model =
                 time =
                     (timediff / 1000) + model.time
 
-                ( head, tail, lastMove, lastMoveDirection ) =
+                ( head, tail, food, lastMove, lastMoveDirection ) =
                     if time - model.lastMove >= 1 then
                         let
-                            ( x, y ) =
-                                model.head
+                            ( head, lastMoveDirection ) =
+                                nextPosition model
 
-                            ( fx, fy ) =
-                                model.food
-
-                            gotFood =
-                                x == fx && y == fy
-
-                            newTail : List Position
-                            newTail =
-                                model.head :: model.tail
-
-                            tail =
-                                if gotFood then
-                                    newTail
-                                else
-                                    newTail
-                                        |> List.reverse
-                                        |> List.tail
-                                        |> Maybe.withDefault []
-                                        |> List.reverse
+                            ( tail, food ) =
+                                newTail head model
                         in
-                        case model.direction of
-                            Up ->
-                                ( ( x, y + 1 ), tail, time, Up )
-
-                            Down ->
-                                ( ( x, y - 1 ), tail, time, Down )
-
-                            Left ->
-                                ( ( x - 1, y ), tail, time, Left )
-
-                            Right ->
-                                ( ( x + 1, y ), tail, time, Right )
+                        ( head, tail, food, time, lastMoveDirection )
                     else
-                        ( model.head, model.tail, model.lastMove, model.lastMoveDirection )
+                        ( model.head, model.tail, model.food, model.lastMove, model.lastMoveDirection )
 
                 ( x, y ) =
                     head
@@ -123,14 +108,80 @@ update msg model =
                             | time = time
                             , head = head
                             , tail = tail
+                            , food = food
                             , lastMove = lastMove
                             , lastMoveDirection = lastMoveDirection
                         }
             in
-            newModel ! [ Cmd.none ]
+            newModel
+                ! [ case food of
+                        Nothing ->
+                            getNextPosition head tail
+
+                        Just _ ->
+                            Cmd.none
+                  ]
 
         KeyDown key ->
             { model | direction = dirForKey key model.direction model.lastMoveDirection } ! []
+
+        NewFood positions selection ->
+            let
+                food =
+                    List.drop (selection - 1) positions
+                        |> List.head
+            in
+            { model | food = food } ! []
+
+
+nextPosition : Model -> ( Position, Direction )
+nextPosition model =
+    let
+        ( x, y ) =
+            model.head
+    in
+    case model.direction of
+        Up ->
+            ( ( x, y + 1 ), Up )
+
+        Down ->
+            ( ( x, y - 1 ), Down )
+
+        Left ->
+            ( ( x - 1, y ), Left )
+
+        Right ->
+            ( ( x + 1, y ), Right )
+
+
+newTail : Position -> Model -> ( List Position, Maybe Position )
+newTail head model =
+    let
+        ( x, y ) =
+            head
+
+        gotFood =
+            case model.food of
+                Nothing ->
+                    False
+
+                Just ( fx, fy ) ->
+                    x == fx && y == fy
+
+        newTail : List Position
+        newTail =
+            model.head :: model.tail
+    in
+    if gotFood then
+        ( newTail, Nothing )
+    else
+        ( newTail
+            |> List.reverse
+            |> List.tail
+            |> Maybe.withDefault []
+            |> List.reverse
+        , model.food
+        )
 
 
 dirForKey : KeyCode -> Direction -> Direction -> Direction
@@ -164,27 +215,52 @@ dirForKey key previous lastMove =
             previous
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.batch [ AnimationFrame.diffs Tick, Keyboard.downs KeyDown ]
+getNextPosition : Position -> List Position -> Cmd Msg
+getNextPosition head tail =
+    let
+        snake =
+            head :: tail
+
+        available =
+            List.filter
+                (\i -> not (List.member i snake))
+                allFields
+    in
+    Random.generate (NewFood available) (Random.int 0 (List.length available))
 
 
-view : Model -> Html msg
-view model =
-    WebGL.toHtml
-        [ width 400
-        , height 400
-        , style [ ( "display", "block" ) ]
-        ]
-        (food model.food
-            :: List.map
-                (\c -> snake c)
-                (model.head :: model.tail)
-        )
+allFields : List Position
+allFields =
+    let
+        valueRange =
+            List.range 0 9
+    in
+    List.map (\x -> ( x, 0 )) valueRange
+        |> List.concatMap (\( x, _ ) -> List.map (\y -> ( x, y )) valueRange)
 
 
-food : Position -> WebGL.Entity
-food ( x, y ) =
+food : Maybe Position -> WebGL.Entity
+food position =
+    case position of
+        Just p ->
+            draw (vec3 0 1 0) p
+
+        Nothing ->
+            draw (vec3 0 0 0) ( -10, -10 )
+
+
+head : Position -> WebGL.Entity
+head =
+    draw (vec3 1 0 0)
+
+
+tail : Position -> WebGL.Entity
+tail =
+    draw (vec3 1 0 0)
+
+
+draw : Vec3 -> Position -> WebGL.Entity
+draw color ( x, y ) =
     let
         xpos =
             toFloat x * 0.2 - 1 + 0.1
@@ -192,19 +268,7 @@ food ( x, y ) =
         ypos =
             toFloat y * 0.2 - 1 + 0.1
     in
-    square ( xpos, ypos, 0 ) ( 0.1, 0.1, 0.1 ) 0
-
-
-snake : Position -> WebGL.Entity
-snake ( x, y ) =
-    let
-        xpos =
-            toFloat x * 0.2 - 1 + 0.1
-
-        ypos =
-            toFloat y * 0.2 - 1 + 0.1
-    in
-    square ( xpos, ypos, 0 ) ( 0.1, 0.1, 0.1 ) 0
+    square color ( xpos, ypos, 0 ) ( 0.1, 0.1, 0.1 ) 0
 
 
 type alias Translation =
@@ -219,9 +283,9 @@ type alias Rotation =
     Float
 
 
-square : Translation -> Scale -> Rotation -> WebGL.Entity
-square =
-    element squareMesh
+square : Vec3 -> Translation -> Scale -> Rotation -> WebGL.Entity
+square color =
+    element (squareMesh color)
 
 
 element : Mesh Vertex -> Translation -> Scale -> Rotation -> WebGL.Entity
@@ -247,18 +311,11 @@ perspective t =
         (Mat4.makeLookAt (vec3 (4 * cos t) 0 (4 * sin t)) (vec3 0 0 0) (vec3 0 1 0))
 
 
-triangleMesh : Mesh Vertex
-triangleMesh =
+squareMesh : Vec3 -> Mesh Vertex
+squareMesh color =
     WebGL.triangles
-        [ ( Vertex (vec3 -1 -1 0), Vertex (vec3 1 -1 0), Vertex (vec3 0 1 0) )
-        ]
-
-
-squareMesh : Mesh Vertex
-squareMesh =
-    WebGL.triangles
-        [ ( Vertex (vec3 -1 -1 0), Vertex (vec3 1 -1 0), Vertex (vec3 1 1 0) )
-        , ( Vertex (vec3 1 1 0), Vertex (vec3 -1 1 0), Vertex (vec3 -1 -1 0) )
+        [ ( Vertex (vec3 -1 -1 0) color, Vertex (vec3 1 -1 0) color, Vertex (vec3 1 1 0) color )
+        , ( Vertex (vec3 1 1 0) color, Vertex (vec3 -1 1 0) color, Vertex (vec3 -1 -1 0) color )
         ]
 
 
@@ -267,26 +324,41 @@ type alias Uniforms =
 
 
 type alias Vertex =
-    { position : Vec3 }
+    { position : Vec3, color : Vec3 }
 
 
-vertexShader : Shader Vertex Uniforms {}
+vertexShader : Shader Vertex Uniforms { vcolor : Vec3 }
 vertexShader =
     [glsl|
         attribute vec3 position;
+        attribute vec3 color;
         uniform mat4 perspective;
         uniform mat4 transform;
+        varying vec3 vcolor;
         void main () {
             gl_Position = transform * vec4(position, 1.0);
+            vcolor = color;
         }
     |]
 
 
-fragmentShader : Shader {} Uniforms {}
+fragmentShader : Shader {} Uniforms { vcolor : Vec3 }
 fragmentShader =
     [glsl|
         precision mediump float;
+        varying vec3 vcolor;
+
         void main () {
-            gl_FragColor = vec4(vec3( 1, 0, 0), 1.0);
+            gl_FragColor = vec4(vcolor, 1.0);
         }
     |]
+
+
+main : Program Never Model Msg
+main =
+    Html.program
+        { init = init
+        , view = view
+        , subscriptions = subscriptions
+        , update = update
+        }
