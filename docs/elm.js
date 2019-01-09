@@ -8239,7 +8239,7 @@ var author$project$Main$update = F2(
 		switch (msg.$) {
 			case 0:
 				var timediff = msg.a;
-				var time = (timediff / 1000) + model.au;
+				var time = (timediff / 300) + model.au;
 				var gameState = function () {
 					if ((time - model.D) >= 1) {
 						var _n4 = author$project$Main$nextPosition(model);
