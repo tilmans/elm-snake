@@ -1,9 +1,13 @@
 {
   "scripts": {
-    "start": "elm-live src/Main.elm"
+    "start": "elm-live src/Main.elm",
+    "elm": "elm make src/Main.elm --optimize --output=build/elm.js",
+    "uglify": "uglifyjs build/elm.js --compress 'pure_funcs=\"F2,F3,F4,F5,F6,F7,F8,F9,A2,A3,A4,A5,A6,A7,A8,A9\",pure_getters,keep_fargs=false,unsafe_comps,unsafe' | uglifyjs --mangle --output=build/elm.min.js",
+    "build": "yarn elm && yarn uglify"
   },
   "dependencies": {},
   "devDependencies": {
-    "elm-live": "^2.7.5"
+    "elm-live": "^3.4.0",
+    "uglifyjs": "^2.4.11"
   }
 }

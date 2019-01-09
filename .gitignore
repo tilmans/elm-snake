@@ -1,4 +1,5 @@
 elm-stuff
 node_modules
 .swp
-index.html
+build/elm.js
+build/elm.min.js

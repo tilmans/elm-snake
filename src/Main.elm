@@ -1,19 +1,20 @@
 module Main exposing (main)
 
-import AnimationFrame
+import Browser
+import Browser.Events
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (height, style, width)
-import Keyboard exposing (KeyCode, downs)
+import Keyboard exposing (Key(..))
+import Keyboard.Arrows exposing (Direction(..))
 import Math.Matrix4 as Mat4 exposing (..)
 import Math.Vector3 as Vec3 exposing (Vec3, vec3)
 import Random exposing (..)
-import Time exposing (Time)
 import WebGL exposing (Mesh, Shader)
 
 
 type Msg
-    = Tick Time
-    | KeyDown KeyCode
+    = Tick Float
+    | KeyMsg Keyboard.Msg
     | NewFood (List Position) Int
 
 
@@ -21,7 +22,7 @@ type alias Position =
     ( Int, Int )
 
 
-type Direction
+type MovementDirection
     = Up
     | Down
     | Right
@@ -32,26 +33,33 @@ type alias Model =
     { head : Position
     , tail : List Position
     , food : Maybe Position
-    , direction : Direction
-    , time : Time
-    , lastMove : Time
-    , lastMoveDirection : Direction
+    , direction : List Key
+    , time : Float
+    , lastMove : Float
+    , lastMoveDirection : MovementDirection
     }
 
 
-init : ( Model, Cmd Msg )
-init =
+type alias Flags =
+    {}
+
+
+init : Flags -> ( Model, Cmd Msg )
+init _ =
     ( initialModel, getNextPosition initialModel.head initialModel.tail )
 
 
 initialModel : Model
 initialModel =
-    Model ( 4, 4 ) [] Nothing Right 0 0 Right
+    Model ( 4, 4 ) [] Nothing [] 0 0 Right
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ AnimationFrame.diffs Tick, Keyboard.downs KeyDown ]
+    Sub.batch
+        [ Browser.Events.onAnimationFrameDelta Tick
+        , Sub.map KeyMsg Keyboard.subscriptions
+        ]
 
 
 view : Model -> Html msg
@@ -59,7 +67,7 @@ view model =
     WebGL.toHtml
         [ width 400
         , height 400
-        , style [ ( "display", "block" ) ]
+        , style "display" "block"
         ]
         ((head model.head
             :: List.map
@@ -76,71 +84,97 @@ update msg model =
         Tick timediff ->
             let
                 time =
-                    (timediff / 1000) + model.time
+                    (timediff / 300) + model.time
 
-                ( head, tail, food, lastMove, lastMoveDirection ) =
+                gameState =
                     if time - model.lastMove >= 1 then
                         let
-                            ( head, lastMoveDirection ) =
+                            ( head_, lastMoveDirection ) =
                                 nextPosition model
 
-                            ( tail, food ) =
-                                newTail head model
+                            ( tail_, food_ ) =
+                                newTail head_ model
                         in
-                        ( head, tail, food, time, lastMoveDirection )
+                        { head = head_, tail = tail_, food = food_, lastMove = time, lastMoveDirection = lastMoveDirection }
+
                     else
-                        ( model.head, model.tail, model.food, model.lastMove, model.lastMoveDirection )
+                        { head = model.head, tail = model.tail, food = model.food, lastMove = model.lastMove, lastMoveDirection = model.lastMoveDirection }
 
                 ( x, y ) =
-                    head
+                    gameState.head
 
                 hitBorder =
                     x < 0 || x > 9 || y < 0 || y > 9
 
                 hitTail =
-                    (List.filter (\( tx, ty ) -> tx == x && ty == y) tail |> List.length) > 0
+                    (List.filter (\( tx, ty ) -> tx == x && ty == y) gameState.tail |> List.length) > 0
 
                 newModel =
                     if hitBorder || hitTail then
                         initialModel
+
                     else
                         { model
                             | time = time
-                            , head = head
-                            , tail = tail
-                            , food = food
-                            , lastMove = lastMove
-                            , lastMoveDirection = lastMoveDirection
+                            , head = gameState.head
+                            , tail = gameState.tail
+                            , food = gameState.food
+                            , lastMove = gameState.lastMove
+                            , lastMoveDirection = gameState.lastMoveDirection
                         }
             in
-            newModel
-                ! [ case food of
-                        Nothing ->
-                            getNextPosition head tail
+            ( newModel
+            , case gameState.food of
+                Nothing ->
+                    getNextPosition gameState.head gameState.tail
 
-                        Just _ ->
-                            Cmd.none
-                  ]
+                Just _ ->
+                    Cmd.none
+            )
 
-        KeyDown key ->
-            { model | direction = dirForKey key model.direction model.lastMoveDirection } ! []
+        KeyMsg key ->
+            let
+                arrows =
+                    Keyboard.update key model.direction
+
+                newDirection =
+                    Keyboard.Arrows.arrowsDirection arrows
+
+                newMovement =
+                    case newDirection of
+                        North ->
+                            Up
+
+                        South ->
+                            Down
+
+                        West ->
+                            Left
+
+                        East ->
+                            Right
+
+                        _ ->
+                            model.lastMoveDirection
+            in
+            ( { model | lastMoveDirection = newMovement, direction = arrows }, Cmd.none )
 
         NewFood positions selection ->
             let
-                food =
+                foodItems =
                     List.drop (selection - 1) positions
                         |> List.head
             in
-            { model | food = food } ! []
+            ( { model | food = foodItems }, Cmd.none )
 
 
-nextPosition : Model -> ( Position, Direction )
+nextPosition : Model -> ( Position, MovementDirection )
 nextPosition model =
     let
         ( x, y ) =
             model.head
     in
-    case model.direction of
+    case model.lastMoveDirection of
         Up ->
             ( ( x, y + 1 ), Up )
 
@@ -155,10 +189,10 @@ nextPosition model =
 
 
 newTail : Position -> Model -> ( List Position, Maybe Position )
-newTail head model =
+newTail head_ model =
     let
         ( x, y ) =
-            head
+            head_
 
         gotFood =
             case model.food of
@@ -168,14 +202,15 @@ newTail head model =
                 Just ( fx, fy ) ->
                     x == fx && y == fy
 
-        newTail : List Position
-        newTail =
+        newTail_ : List Position
+        newTail_ =
             model.head :: model.tail
     in
     if gotFood then
-        ( newTail, Nothing )
+        ( newTail_, Nothing )
+
     else
-        ( newTail
+        ( newTail_
             |> List.reverse
             |> List.tail
             |> Maybe.withDefault []
@@ -184,42 +219,11 @@ newTail head model =
         )
 
 
-dirForKey : KeyCode -> Direction -> Direction -> Direction
-dirForKey key previous lastMove =
-    case key of
-        38 ->
-            if lastMove == Down then
-                Down
-            else
-                Up
-
-        40 ->
-            if lastMove == Up then
-                Up
-            else
-                Down
-
-        37 ->
-            if lastMove == Right then
-                Right
-            else
-                Left
-
-        39 ->
-            if lastMove == Left then
-                Left
-            else
-                Right
-
-        _ ->
-            previous
-
-
 getNextPosition : Position -> List Position -> Cmd Msg
-getNextPosition head tail =
+getNextPosition head_ tail_ =
     let
         snake =
-            head :: tail
+            head_ :: tail_
 
         available =
             List.filter
@@ -354,9 +358,9 @@ fragmentShader =
     |]
 
 
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    Html.program
+    Browser.element
         { init = init
         , view = view
         , subscriptions = subscriptions
